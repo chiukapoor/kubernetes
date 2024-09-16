@@ -1,0 +1,130 @@
+name: Create release branch from new tag with cherry-pick
+
+on:
+  push:
+    branches:
+      - 'kubernetes-version-automation-test'
+  schedule:
+    - cron: "0 0 * * *" # Runs daily at midnight
+  workflow_dispatch:
+
+jobs:
+  create-branches:
+    runs-on: ubuntu-latest
+    outputs:
+      new-release-branches: ${{ steps.create-release-branches.outputs.NEW_RELEASE_BRANCHES }}
+    steps:
+      - name: Checkout repository r/k
+        uses: actions/checkout@v4
+        with:
+          repository: 'rancher/kubernetes'
+          path: 'rancher-k8s'
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Checkout repository c/k
+        uses: actions/checkout@v4
+        with:
+          path: 'chirayu-k8s'
+
+      # - name: Retrieve token from vault
+      #   uses: rancher-eio/read-vault-secrets@main
+      #   with:
+      #     secrets: |
+      #       secret/data/github/repo/${{ github.repository }}/github-token/credentials token | PAT_TOKEN ;
+
+      - name: Fetch the new tags from kubernetes/kubernetes repository
+        run: $GITHUB_WORKSPACE/chirayu-k8s/.github/scripts/check-for-new-tags.sh
+
+      - name: Create new release branches and tags on chiukapoor/kubernetes
+        id: create-release-branches
+        run: |
+          cd rancher-k8s
+          $GITHUB_WORKSPACE/chirayu-k8s/.github/scripts/create-release-tags.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+
+      # - name: 'Tar files'
+      #   run: |
+      #     tar -czf rancher-k8s.tar.gz -C rancher-k8s .
+      
+      # - name: Push r/k git repo to artifacts
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: git-repo
+      #     path: rancher-k8s.tar.gz
+
+  build-and-validate:
+    needs: create-branches
+    runs-on: ubuntu-latest
+    container:
+      image: rancher/dapper:v0.6.0
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        branches: ${{ fromJSON(needs.create-branches.outputs.new-release-branches) }}
+        # branches: ["release-v1.31.1", "release-v1.31.0", "release-v1.30.5", "release-v1.29.9", "release-v1.28.14"]
+      fail-fast: false
+    
+    steps:
+      - name: Fix the not-a-git-repository issue
+        run: |
+          apk -U add git
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+
+      - name: Checkout repository c/k
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.branches }}
+
+      # - name: Download git repo from artifact
+      #   uses: actions/download-artifact@v4
+      #   with:
+      #     name: git-repo
+
+      # - name: Extract Artifact
+      #   run: |
+      #     tar -zxf rancher-k8s.tar.gz
+      #     rm rancher-k8s.tar.gz
+
+      # - name: Retrieve token from vault
+      #   uses: rancher-eio/read-vault-secrets@main
+      #   with:
+      #     secrets: |
+      #       secret/data/github/repo/${{ github.repository }}/github-token/credentials token | PAT_TOKEN ;
+
+      - name: Build with Dapper for branch ${{ matrix.branches }}
+        run: dapper ci
+
+      - name: List the bin for ${{ matrix.branches }}
+        run: ls -lR output/bin
+
+      - name: Push release tag ${{ matrix.branches }}
+        run: |
+          BRANCH=${{ matrix.branches }}
+          
+          # To stash any changes created by dapper CI run
+          git stash
+          
+          # Remove the 'release-' prefix to create the tag name
+          TAG="${BRANCH#release-}"
+
+          echo "Creating the tag: $TAG for branch: $BRANCH"
+          # Create the tag
+          if ! git tag "$TAG" "$BRANCH"; then
+            echo "Warning: Error while creating the tag $TAG in the repository."
+            exit 1
+          fi
+          
+          # Push the tag to origin
+          if ! git push origin "$TAG"; then
+            echo "Warning: Error while pushing the tag $TAG to the repository."
+            exit 1
+          else
+            echo "Successfully pushed tag $TAG: https://github.com/chiukapoor/kubernetes/releases/tag/$TAG"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}

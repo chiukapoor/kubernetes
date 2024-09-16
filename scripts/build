@@ -37,3 +37,11 @@ sha256sum output/bin/* > output/bin/sha256sum.txt
 rm -rf _output/
 
 echo Built ${TAG}
+
+if [ -d "output/bin" ] && [ "$(ls -A output/bin)" ]; then
+    echo "The directory output/bin exists and is not empty."
+    ls -lR output/bin
+else
+    echo "The directory output/bin does not exist or is empty."
+    exit 1
+fi
