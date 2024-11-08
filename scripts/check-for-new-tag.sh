@@ -9,7 +9,7 @@ rancher_tags_file=$(mktemp -p /tmp)
 upstream_tags_file=$(mktemp -p /tmp)
 
 # Fetch tags from the rancher/kubernetes repository and save to a temp file
-git ls-remote --tags --refs --sort='-v:refname' https://github.com/rancher/kubernetes.git > "$rancher_tags_file"
+git ls-remote --tags --refs --sort='-v:refname' https://github.com/chiukapoor/kubernetes.git > "$rancher_tags_file"
 
 # Fetch tags from the upstream kubernetes repository and save to a temp file
 git ls-remote --tags --refs --sort='-v:refname' https://github.com/kubernetes/kubernetes.git | head -n 100 | awk '{print $2}' | sed 's|refs/tags/||' > "$upstream_tags_file"
